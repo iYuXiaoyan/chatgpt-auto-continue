@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# 运行产物
+logs/
+build/
+dist/
+*.spec
+
+# 系统/编辑器
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
