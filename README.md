@@ -1,38 +1,89 @@
-# chatgpt-auto-continue
+# ChatGPT Auto Continue
 
-ChatGPT 桌面版「5 小时限额重置后自动发送『继续』」小工具。挂在后台轮询窗口状态：限额期静默等待；发现空闲且过了冷却期就自动粘贴「继续」并发送，让 Codex 整夜持续推进。
+[English](#english) | [中文](#中文)
 
-## 原理
+当 ChatGPT 桌面版（Windows）的 5 小时用量限额重置后，自动发送「继续」，让 Codex / Agent 接着干活 -- 不用熬夜守着。
 
-- 通过 UIA（`uiautomation` 库）按 窗口类名 + 标题 + 进程名（`ChatGPT.exe`）定位窗口，每分钟读取一次界面文本与控件状态。
-- **状态机**：
-  - `limited`：界面出现「你已达到使用上限」类字样 → 只记录，不动作；
-  - `working`：出现「正在思考 / 处理中 / 停止按钮」→ 说明 Codex 在干活，不打扰；
-  - `idle`：以上都不是 → 距上次自动发送超过 `SEND_COOLDOWN`（默认 1800 秒）就发送一次「继续」。
-- 发送路径：聚焦输入框 → Ctrl+A 清空 → 剪贴板粘贴（`pyperclip` + Ctrl+V，兼容中文）→ 优先点「发送」按钮，找不到则回车。
-- 运行期间用 `SetThreadExecutionState` 阻止系统睡眠（不点亮屏幕），退出时恢复。
+A tiny Windows tray app that watches the ChatGPT desktop app and automatically sends a "continue" message once your 5-hour usage limit resets, so your Codex / agent work keeps going overnight.
 
-## 使用
+![platform](https://img.shields.io/badge/platform-Windows-0078D6) ![python](https://img.shields.io/badge/python-3.9+-3776AB) ![license](https://img.shields.io/badge/license-MIT-green)
 
-1. 安装依赖（仅首次）：`pip install uiautomation pyperclip`
-2. 启动：
-   - 双击 `start.vbs`（静默后台，推荐）；或
-   - 命令行 `python main.py loop`（整夜循环，默认）；`python main.py once`（发送一次即退出）。
-3. 停止：任务管理器结束 `pythonw.exe` / 命令行 Ctrl+C。
-4. 看日志：`logs/auto_continue_YYYYMMDD.log`。
+---
 
-## 配置（config.py）
+## English
 
-| 项 | 默认 | 说明 |
-| --- | --- | --- |
-| `POLL_INTERVAL` | 60 | 轮询间隔（秒） |
-| `SEND_TEXT` | 继续 | 自动发送的内容 |
-| `SEND_COOLDOWN` | 1800 | 两次自动发送最小间隔（秒），防刷屏 |
-| `LIMIT_KEYWORDS` / `WORKING_KEYWORDS` | 见文件 | 状态判定关键词，界面改版后可自行补充 |
+### Features
 
-## 注意事项
+- **Polls every minute** and classifies the ChatGPT window into three states:
+  - `limited` – the "you've reached your usage limit" banner is visible → wait quietly;
+  - `working` – "thinking" / stop button visible → don't disturb;
+  - `idle` – free quota and nothing running → send your custom text (default `继续` / "continue") if the cooldown (default 30 min) has passed.
+- **System tray app** (pystray): live status icon (orange = limited, green = working, blue = idle, gray = stopped), start/stop, send once, settings dialog, open logs.
+- **Stays awake** while running (prevents Windows sleep; does not keep the screen on).
+- **CLI mode** for headless use: `python main.py loop` / `python main.py once`.
+- Works with a **minimized** ChatGPT window (restores it only for the moment of sending).
 
-- 工具只操作 ChatGPT 桌面版（`ChatGPT.exe`），不会碰同名浏览器标签页。
-- 发送时若窗口被最小化会被短暂还原；发送后不自动最小化回去。
-- 若 Codex 停在「请求批准」等人审状态，发送「继续」不会替你做审批。
-- 电脑需保持开机；工具只防睡眠，不防关机。
+### Install
+
+**Option A – download the exe (recommended)**
+
+Grab `ChatGPT-Auto-Continue.exe` from [Releases](https://github.com/iYuXiaoyan/chatgpt-auto-continue/releases), put it anywhere, double-click. A tray icon appears; right-click it for the menu. Settings and logs live next to the exe (`settings.json`, `logs/`).
+
+**Option B – run from source**
+
+```bat
+pip install -r requirements.txt
+python tray_app.py        :: tray app
+python main.py loop       :: or CLI
+```
+
+### Requirements
+
+- Windows 10/11, ChatGPT **desktop** app open and signed in.
+- The machine must stay **unlocked** (the tool prevents sleep, but cannot act on a lock screen).
+
+### Disclaimer
+
+Unofficial tool, not affiliated with or endorsed by OpenAI. "ChatGPT" is a trademark of OpenAI. It only reads UI text and sends keystrokes to a window you own; use at your own risk.
+
+---
+
+## 中文
+
+### 功能
+
+- **每分钟轮询** ChatGPT 桌面版窗口，三态状态机：
+  - `limited` 限额用完 → 静默等待；
+  - `working` Codex 工作中 → 不打扰；
+  - `idle` 空闲 → 冷却期（默认 30 分钟）过后自动发送自定义文本（默认「继续」）。
+- **托盘小软件**：图标颜色即状态（橙=限额，绿=工作中，蓝=空闲，灰=停止），右键菜单含 开始/停止、立即发送、设置、打开日志。
+- 运行期间**防止系统睡眠**（不点亮屏幕）。
+- 支持 **CLI 无界面模式**：`python main.py loop` / `once`。
+- ChatGPT 窗口**最小化也能用**（发送瞬间短暂还原窗口）。
+
+### 安装使用
+
+**方式 A：下载 exe（推荐）**
+
+在 [Releases](https://github.com/iYuXiaoyan/chatgpt-auto-continue/releases) 下载 `ChatGPT-Auto-Continue.exe`，放到任意位置双击即可。托盘图标右键出菜单；设置和日志存放在 exe 旁边（`settings.json`、`logs/`）。
+
+**方式 B：源码运行**
+
+```bat
+pip install -r requirements.txt
+python tray_app.py        :: 托盘版
+python main.py loop       :: 或命令行版
+```
+
+### 前提
+
+- Windows 10/11，ChatGPT **桌面版**已登录并保持打开。
+- 电脑**不能锁屏**：工具只防睡眠，锁屏下任何键鼠自动化都无效。
+
+### 免责声明
+
+非官方工具，与 OpenAI 无关，「ChatGPT」为 OpenAI 商标。工具只读取界面文本、向本机窗口发送键盘输入，请自行评估风险后使用。
+
+## License
+
+[MIT](LICENSE)

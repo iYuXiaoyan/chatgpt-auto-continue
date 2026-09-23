@@ -1,83 +1,33 @@
 # -*- coding: utf-8 -*-
-"""chatgpt-auto-continue 主循环。
+"""chatgpt-auto-continue 命令行入口。
 
 用法：
     python main.py loop   # 整夜循环监测（默认）
-    python main.py once   # 空闲发送一次后退出
+    python main.py once   # 立即发送一次后退出
 """
-import logging
 import sys
-import time
-import traceback
-from datetime import datetime
-from pathlib import Path
 
 import config
-from chatgpt_ui import ChatGPTWindow
-from keepawake import KeepAwake, keep_awake
-
-
-def setup_logging():
-    log_dir = Path(__file__).resolve().parent / config.LOG_DIR
-    log_dir.mkdir(exist_ok=True)
-    logfile = log_dir / f'auto_continue_{datetime.now():%Y%m%d}.log'
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s %(message)s',
-        handlers=[
-            logging.FileHandler(logfile, encoding='utf-8'),
-            logging.StreamHandler(),
-        ],
-        force=True,
-    )
-    return logging.getLogger('auto-continue')
+from applog import setup_logging
+from monitor import MonitorEngine
 
 
 def main(mode='loop'):
     log = setup_logging()
+    settings = config.load_settings()
     log.info('started: mode=%s poll=%ss cooldown=%ss text=%r',
-             mode, config.POLL_INTERVAL, config.SEND_COOLDOWN, config.SEND_TEXT)
-    last_sent = 0.0
-    last_state = None
-    not_found_rounds = 0
+             mode, settings['poll_interval'], settings['send_cooldown'], settings['send_text'])
 
-    with KeepAwake():
-        while True:
-            keep_awake()
-            try:
-                win = ChatGPTWindow.find()
-                if win is None:
-                    not_found_rounds += 1
-                    if not_found_rounds == 1 or not_found_rounds % 10 == 0:
-                        log.warning('ChatGPT window not found (round %d)', not_found_rounds)
-                    time.sleep(config.POLL_INTERVAL)
-                    continue
-                not_found_rounds = 0
-
-                state, info = win.get_state()
-                if state != last_state:
-                    log.info('state -> %s %s', state, info)
-                    last_state = state
-
-                if state == ChatGPTWindow.STATE_IDLE and time.time() - last_sent >= config.SEND_COOLDOWN:
-                    log.info('idle: sending %r ...', config.SEND_TEXT)
-                    ok, detail = win.send_message(config.SEND_TEXT)
-                    if ok:
-                        last_sent = time.time()
-                        log.info('sent OK (%s)', detail)
-                    else:
-                        log.error('send failed: %s', detail)
-                    if mode == 'once':
-                        log.info('once mode: exit')
-                        return 0 if ok else 1
-
-                time.sleep(config.POLL_INTERVAL)
-            except KeyboardInterrupt:
-                log.info('interrupted, exit')
-                return 0
-            except Exception:
-                log.error('unexpected error:\n%s', traceback.format_exc())
-                time.sleep(config.POLL_INTERVAL)
+    engine = MonitorEngine(settings, on_log=log.info)
+    if mode == 'once':
+        ok, detail = engine.send_once()
+        log.info('sent=%s (%s)', ok, detail)
+        return 0 if ok else 1
+    try:
+        engine.run()
+    except KeyboardInterrupt:
+        log.info('interrupted, exit')
+    return 0
 
 
 if __name__ == '__main__':

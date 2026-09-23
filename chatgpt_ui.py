@@ -16,6 +16,25 @@ _psapi = ctypes.windll.psapi
 SW_RESTORE = 9
 
 
+def _silence_uiautomation_logger():
+    """禁用 uiautomation 向 stdout 打印横幅/调试信息。
+
+    pythonw / PyInstaller --noconsole 环境下 sys.stdout 为 None 或管道，
+    其 ResetConsoleColor 里的 sys.stdout.flush() 会直接抛 OSError 杀死线程，
+    必须在任何工作线程启动前静默。
+    """
+    try:
+        noop = staticmethod(lambda *args, **kwargs: None)
+        auto.Logger.Write = noop
+        auto.Logger.WriteLine = noop
+        auto.Logger.ColorfullyWrite = noop
+    except Exception:
+        pass
+
+
+_silence_uiautomation_logger()
+
+
 def process_image_name(pid):
     """按 pid 取进程映像路径（设备路径），失败返回空串。"""
     handle = _kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
@@ -31,7 +50,11 @@ def process_image_name(pid):
 
 
 def find_chatgpt_window():
-    """按 类名 + 标题关键字 + 进程名 + 可见 找 ChatGPT 主窗口，排除同名浏览器标签页。"""
+    """按 类名 + 标题关键字 + 进程名 + 可见 找 ChatGPT 主窗口，排除同名浏览器标签页。
+
+    注意：最小化的窗口 UIA 矩形为 0x0（如 Typora/Edge 最小化时），
+    因此可见性用 win32 IsWindowVisible 判定，不能依赖 UIA 矩形尺寸。
+    """
     root = auto.GetRootControl()
     for w in root.GetChildren():
         try:
@@ -39,8 +62,7 @@ def find_chatgpt_window():
                 continue
             if config.WINDOW_NAME_KEYWORD not in (w.Name or ''):
                 continue
-            r = w.BoundingRectangle
-            if r.width() <= 0 or r.height() <= 0:
+            if not _user32.IsWindowVisible(w.NativeWindowHandle):
                 continue
             image = process_image_name(w.ProcessId).lower()
             if not image.endswith(config.PROCESS_NAME.lower()):
@@ -84,7 +106,11 @@ class ChatGPTWindow:
         rec(self.window, 0)
 
     def _find_input(self):
-        """底部主输入框：排除地址栏（取其垂直位置在窗口下半部、宽度足够）。"""
+        """底部主输入框：排除地址栏。
+
+        最小化窗口的 UIA 矩形为 0x0，不能用窗口相对位置判断；
+        地址栏位于窗口顶部（top 通常 < 100），输入框在中下部（top > 300）。
+        """
         found = []
 
         def on_node(ctrl):
@@ -95,8 +121,7 @@ class ChatGPTWindow:
                 if '地址' in name:
                     return True
                 r = ctrl.BoundingRectangle
-                wr = self.window.BoundingRectangle
-                if r.top > wr.height() * 0.6 and r.width() > 200:
+                if r.top > 300 and r.width() > 200:
                     found.append(ctrl)
             except Exception:
                 pass
@@ -180,11 +205,14 @@ class ChatGPTWindow:
 
     def send_message(self, text):
         """聚焦输入框 -> 清空 -> 粘贴 -> 点发送（找不到按钮则回车）。返回 (ok, detail)。"""
+        try:
+            self._ensure_visible()
+        except Exception:
+            pass
         edit = self._find_input()
         if edit is None:
             return False, 'input box not found'
         try:
-            self._ensure_visible()
             edit.SetFocus()
             time.sleep(0.2)
             edit.Click(simulateMove=False)
