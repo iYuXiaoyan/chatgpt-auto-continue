@@ -13,3 +13,6 @@ Thumbs.db
 .DS_Store
 .vscode/
 .idea/
+
+# uiautomation 运行日志
+@AutomationLog.txt
